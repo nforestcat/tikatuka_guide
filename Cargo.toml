@@ -6,3 +6,6 @@ edition = "2021"
 [lib]
 name = "tikatuka"
 path = "src/lib.rs"
+
+[dependencies]
+xcap = "0.9.6"

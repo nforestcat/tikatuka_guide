@@ -12,21 +12,24 @@ Windows helper for Lost Ark's Tikatuka minigame. It observes the game/window sta
 
 ```text
 tikatuka_guide/
-├── Cargo.toml       # Rust crate (lib name `tikatuka`)
-├── src/lib.rs       # crate re-exports only
-├── src/core.rs      # core module re-exports
-├── src/core/        # dice/field types + rules
-├── src/search.rs    # search module internals + re-exports
-├── src/search/      # public recommendation/advice API
-├── src/*_tests.rs   # unit tests kept out of production modules
-├── README.md        # placeholder
-├── LICENSE          # MIT
-└── AGENTS.md        # project memory
+├── Cargo.toml         # Rust crate (lib name `tikatuka`); dep: xcap (capture)
+├── src/lib.rs         # crate re-exports only
+├── src/core.rs        # core module re-exports
+├── src/core/          # dice/field types + rules
+├── src/search.rs      # search module internals + re-exports
+├── src/search/        # public recommendation/advice API
+├── src/bin/capture.rs # dev tool: save a window to PNG (perception calibration)
+├── src/*_tests.rs     # unit tests kept out of production modules
+├── README.md          # placeholder
+├── LICENSE            # MIT
+└── AGENTS.md          # project memory
 ```
 
-Only the pure rule engine and depth-limited solver exist so far. Vision and app
-layers are still future. Add subdirectory AGENTS.md files only once a directory
-has distinct conventions or enough code that local rules beat this root note.
+The pure rule engine + depth-limited solver are complete. Perception is just
+starting: `capture` is the first piece (window → PNG); the recognizer that turns
+a frame into a `TurnInput` is next and needs real Tikatuka screenshots to
+calibrate. The app/loop layer is still future. Add subdirectory AGENTS.md files
+only once a directory has distinct conventions or enough code to warrant them.
 
 ## DOMAIN RULES
 
@@ -119,13 +122,17 @@ Implemented under `src/` (crate `tikatuka`):
 | `recommend_move_search` | fn | best human placement via search (`DEFAULT_DEPTH = 3`) |
 | `recommend_turn` / `TurnAdvice` | fn/enum | whether to reroll (타짜) or place — prices the reroll's option value |
 | `recommend_after_reroll` / `RerollChoice` | fn/struct | after using 타짜, choose old/new face and placement |
+| `CurrentDie` | enum | the die to place: `Normal` / `Shielded` / `OpeningShielded(face)` |
+| `TurnInput` | struct | bundled advisor input (boards, current die, reroll flags, depth) — the perception→engine handoff type |
+| `capture` (bin) | tool | `src/bin/capture.rs`: save a window to PNG to calibrate recognition |
 
 Still future:
 
 | Symbol | Type | Location | Role |
 |--------|------|----------|------|
+| recognizer | mod | future `src/vision/` | PNG frame → `TurnInput` (board dice+shields, current die, Tazza/Tikatuka button states); needs real screenshots to calibrate |
 | Tikatuka EV | fn | `src/search.rs` | meta-score bet advisor — blocked on open questions (activation + payout) |
-| screen recognition | mod | future `src/vision/` | capture → `Field`/rolled die/button states |
+| app loop | bin | future | capture → recognize → `recommend_turn` → show advice, on a loop |
 
 ## CONVENTIONS
 
