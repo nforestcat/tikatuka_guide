@@ -1,5 +1,7 @@
+use std::collections::HashMap;
+
 use crate::core::{
-    apply_move, field_full, heuristic_eval, legal_moves, Die, DieFace, DieKind, Field, Move,
+    apply_move, field_full, heuristic_eval, legal_moves, CurrentDie, DieFace, Field, Move,
 };
 
 mod advice;
@@ -11,7 +13,13 @@ pub use advice::{
 
 pub const DEFAULT_DEPTH: u32 = 3;
 
-#[derive(Clone, Copy)]
+#[derive(Default)]
+struct EvalCache {
+    turns: HashMap<(Search, u32), f64>,
+    placements: HashMap<(Search, CurrentDie, u32), f64>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct Search {
     pub(crate) human: Field,
     pub(crate) cpu: Field,
@@ -89,106 +97,151 @@ fn pick(human_to_move: bool, a: f64, b: f64) -> f64 {
     }
 }
 
-pub(crate) fn place_value(st: Search, face: DieFace, depth: u32) -> f64 {
-    let (mine, theirs) = st.mover_boards();
-    let die = Die::new(face, false);
-    let moves = legal_moves(&mine, &theirs, face, DieKind::Normal, false);
-    let values = moves.iter().filter_map(|mv| {
-        let (nmine, ntheirs) = apply_move(&mine, &theirs, die, mv).ok()?;
-        let ns = st.with_mover_boards(nmine, ntheirs);
-        Some(if mv.knockout().is_empty() {
-            turn_value(ns.flip(), depth - 1)
-        } else {
-            bonus_value(ns, depth - 1)
-        })
-    });
-
-    if st.human_to_move {
-        values.fold(f64::NEG_INFINITY, f64::max)
-    } else {
-        values.fold(f64::INFINITY, f64::min)
-    }
+fn choose_value(human_to_move: bool, best: f64, value: f64) -> f64 {
+    pick(human_to_move, best, value)
 }
 
+pub(crate) fn place_value(st: Search, current: CurrentDie, depth: u32) -> f64 {
+    let mut cache = EvalCache::default();
+    place_value_cached(st, current, depth, &mut cache)
+}
+
+fn place_value_cached(st: Search, current: CurrentDie, depth: u32, cache: &mut EvalCache) -> f64 {
+    if let Some(&value) = cache.placements.get(&(st, current, depth)) {
+        return value;
+    }
+
+    let (mine, theirs) = st.mover_boards();
+    let die = current.placed_die();
+    let mut best = if st.human_to_move {
+        f64::NEG_INFINITY
+    } else {
+        f64::INFINITY
+    };
+
+    for mv in legal_moves(&mine, &theirs, current) {
+        let Ok((nmine, ntheirs)) = apply_move(&mine, &theirs, die, &mv) else {
+            continue;
+        };
+        let ns = st.with_mover_boards(nmine, ntheirs);
+        let value = if mv.knockout().is_empty() {
+            turn_value_cached(ns.flip(), depth - 1, cache)
+        } else {
+            bonus_value_cached(ns, depth - 1, cache)
+        };
+        best = choose_value(st.human_to_move, best, value);
+    }
+
+    cache.placements.insert((st, current, depth), best);
+    best
+}
+
+#[cfg(test)]
 pub(crate) fn bonus_value(st: Search, next_depth: u32) -> f64 {
+    let mut cache = EvalCache::default();
+    bonus_value_cached(st, next_depth, &mut cache)
+}
+
+fn bonus_value_cached(st: Search, next_depth: u32, cache: &mut EvalCache) -> f64 {
     let (mine, theirs) = st.mover_boards();
     let mut sum = 0.0;
 
     for face in DieFace::ALL {
-        let die = Die::new(face, true);
-        let moves = legal_moves(&mine, &theirs, face, DieKind::Shielded, false);
-        let values = moves.iter().filter_map(|mv| {
-            let (nmine, ntheirs) = apply_move(&mine, &theirs, die, mv).ok()?;
-            Some(turn_value(
+        let current = CurrentDie::shielded(face);
+        let die = current.placed_die();
+        let moves = legal_moves(&mine, &theirs, current);
+        let mut value = if st.human_to_move {
+            f64::NEG_INFINITY
+        } else {
+            f64::INFINITY
+        };
+        if moves.is_empty() {
+            value = turn_value_cached(st.flip(), next_depth, cache);
+        }
+        for mv in moves {
+            let Ok((nmine, ntheirs)) = apply_move(&mine, &theirs, die, &mv) else {
+                continue;
+            };
+            let next = turn_value_cached(
                 st.with_mover_boards(nmine, ntheirs).flip(),
                 next_depth,
-            ))
-        });
-        let value = if moves.is_empty() {
-            turn_value(st.flip(), next_depth)
-        } else if st.human_to_move {
-            values.fold(f64::NEG_INFINITY, f64::max)
-        } else {
-            values.fold(f64::INFINITY, f64::min)
-        };
+                cache,
+            );
+            value = choose_value(st.human_to_move, value, next);
+        }
         sum += value;
     }
 
     sum / 6.0
 }
 
-fn decide_roll(st: Search, face: DieFace, depth: u32) -> f64 {
-    let keep = place_value(st, face, depth);
+fn decide_roll(st: Search, current: CurrentDie, depth: u32, cache: &mut EvalCache) -> f64 {
+    let keep = place_value_cached(st, current, depth, cache);
     if !st.mover_reroll() {
         return keep;
     }
 
     let spent = st.spend_reroll();
-    let keep_after = place_value(spent, face, depth);
+    let keep_after = place_value_cached(spent, current, depth, cache);
     let mut sum = 0.0;
     for new_face in DieFace::ALL {
         sum += pick(
             st.human_to_move,
             keep_after,
-            place_value(spent, new_face, depth),
+            place_value_cached(spent, current.with_face(new_face), depth, cache),
         );
     }
     pick(st.human_to_move, keep, sum / 6.0)
 }
 
+#[cfg(test)]
 pub(crate) fn turn_value(st: Search, depth: u32) -> f64 {
-    if depth == 0 || (field_full(&st.human) && field_full(&st.cpu)) {
-        return heuristic_eval(&st.human, &st.cpu) as f64;
-    }
-    if st.mover_full() {
-        return turn_value(st.flip(), depth - 1);
-    }
-
-    let mut sum = 0.0;
-    for face in DieFace::ALL {
-        sum += decide_roll(st, face, depth);
-    }
-    sum / 6.0
+    let mut cache = EvalCache::default();
+    turn_value_cached(st, depth, &mut cache)
 }
 
-pub(crate) fn best_placement(
+fn turn_value_cached(st: Search, depth: u32, cache: &mut EvalCache) -> f64 {
+    if let Some(&value) = cache.turns.get(&(st, depth)) {
+        return value;
+    }
+
+    let value = if depth == 0 || (field_full(&st.human) && field_full(&st.cpu)) {
+        heuristic_eval(&st.human, &st.cpu) as f64
+    } else if st.mover_full() {
+        turn_value_cached(st.flip(), depth, cache)
+    } else {
+        let mut sum = 0.0;
+        for face in DieFace::ALL {
+            sum += decide_roll(st, CurrentDie::normal(face), depth, cache);
+        }
+        sum / 6.0
+    };
+    cache.turns.insert((st, depth), value);
+    value
+}
+
+pub(crate) fn best_placement(st: Search, current: CurrentDie, depth: u32) -> Option<(f64, Move)> {
+    let mut cache = EvalCache::default();
+    best_placement_cached(st, current, depth, &mut cache)
+}
+
+fn best_placement_cached(
     st: Search,
-    face: DieFace,
-    kind: DieKind,
-    first_die: bool,
+    current: CurrentDie,
     depth: u32,
+    cache: &mut EvalCache,
 ) -> Option<(f64, Move)> {
     let (mine, theirs) = st.mover_boards();
-    let die = Die::new(face, matches!(kind, DieKind::Shielded));
-    legal_moves(&mine, &theirs, face, kind, first_die)
+    let die = current.placed_die();
+    legal_moves(&mine, &theirs, current)
         .into_iter()
         .filter_map(|mv| {
             let (nmine, ntheirs) = apply_move(&mine, &theirs, die, &mv).ok()?;
             let ns = st.with_mover_boards(nmine, ntheirs);
             let value = if mv.knockout().is_empty() {
-                turn_value(ns.flip(), depth - 1)
+                turn_value_cached(ns.flip(), depth - 1, cache)
             } else {
-                bonus_value(ns, depth - 1)
+                bonus_value_cached(ns, depth - 1, cache)
             };
             Some((value, mv))
         })

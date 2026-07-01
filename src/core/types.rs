@@ -45,7 +45,7 @@ impl TryFrom<u8> for DieFace {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Die {
     face: DieFace,
     shield: bool,
@@ -97,19 +97,69 @@ pub enum Outcome {
     Draw,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum DieKind {
     Normal,
     Shielded,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CurrentDie {
+    Normal(DieFace),
+    Shielded(DieFace),
+    OpeningShielded(DieFace),
+}
+
+impl CurrentDie {
+    pub const fn normal(face: DieFace) -> Self {
+        Self::Normal(face)
+    }
+
+    pub const fn shielded(face: DieFace) -> Self {
+        Self::Shielded(face)
+    }
+
+    pub const fn opening_shielded(face: DieFace) -> Self {
+        Self::OpeningShielded(face)
+    }
+
+    pub const fn face(self) -> DieFace {
+        match self {
+            Self::Normal(face) | Self::Shielded(face) | Self::OpeningShielded(face) => face,
+        }
+    }
+
+    pub const fn kind(self) -> DieKind {
+        match self {
+            Self::Normal(_) => DieKind::Normal,
+            Self::Shielded(_) | Self::OpeningShielded(_) => DieKind::Shielded,
+        }
+    }
+
+    pub const fn first_die(self) -> bool {
+        matches!(self, Self::OpeningShielded(_))
+    }
+
+    pub const fn placed_die(self) -> Die {
+        Die::new(self.face(), matches!(self.kind(), DieKind::Shielded))
+    }
+
+    pub const fn with_face(self, face: DieFace) -> Self {
+        match self {
+            Self::Normal(_) => Self::Normal(face),
+            Self::Shielded(_) => Self::Shielded(face),
+            Self::OpeningShielded(_) => Self::OpeningShielded(face),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Board {
     Mine,
     Theirs,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Placement {
     board: Board,
     row: Row,

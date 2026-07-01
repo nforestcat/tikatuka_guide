@@ -8,8 +8,8 @@ mod search;
 mod search_tests;
 
 pub use crate::core::{
-    apply_move, evaluate_winner, legal_moves, score_field, score_row, ApplyMoveError, Board, Die,
-    DieFace, DieFaceError, DieKind, Field, Move, Outcome, Placement, Row,
+    apply_move, evaluate_winner, legal_moves, score_field, score_row, ApplyMoveError, Board,
+    CurrentDie, Die, DieFace, DieFaceError, DieKind, Field, Move, Outcome, Placement, Row,
 };
 pub use crate::search::{
     recommend_after_reroll, recommend_move, recommend_move_search, recommend_turn, RerollChoice,

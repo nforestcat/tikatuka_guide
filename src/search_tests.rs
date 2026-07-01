@@ -2,7 +2,7 @@ use crate::core::{heuristic_eval, score_field, score_row};
 use crate::search::{bonus_value, turn_value, Search};
 use crate::{
     apply_move, legal_moves, recommend_after_reroll, recommend_move, recommend_move_search,
-    recommend_turn, Board, Die, DieFace, DieKind, Field, Move, Placement, Row, TurnAdvice,
+    recommend_turn, Board, CurrentDie, Die, DieFace, Field, Move, Placement, Row, TurnAdvice,
     TurnInput, DEFAULT_DEPTH,
 };
 
@@ -26,9 +26,18 @@ fn input(face_value: u8, mine: Field, theirs: Field, depth: u32) -> TurnInput {
     TurnInput {
         mine,
         theirs,
-        face: face(face_value),
-        kind: DieKind::Normal,
-        first_die: false,
+        current: CurrentDie::normal(face(face_value)),
+        human_reroll: true,
+        cpu_reroll: true,
+        depth,
+    }
+}
+
+fn shield_input(face_value: u8, mine: Field, theirs: Field, depth: u32) -> TurnInput {
+    TurnInput {
+        mine,
+        theirs,
+        current: CurrentDie::shielded(face(face_value)),
         human_reroll: true,
         cpu_reroll: true,
         depth,
@@ -50,7 +59,7 @@ fn recommend_move_none_on_full_own_board_with_normal_die() {
     let mine: Field = [row(&[1, 1, 1]), row(&[2, 2, 2]), row(&[3, 3, 3])];
     let theirs: Field = [row(&[]), row(&[]), row(&[])];
     assert_eq!(
-        recommend_move(&mine, &theirs, face(5), DieKind::Normal, false),
+        recommend_move(&mine, &theirs, CurrentDie::normal(face(5))),
         None
     );
 }
@@ -59,7 +68,7 @@ fn recommend_move_none_on_full_own_board_with_normal_die() {
 fn recommend_move_prefers_winning_knockout() {
     let mine: Field = [row(&[]), row(&[]), row(&[])];
     let theirs: Field = [row(&[6, 6, 6]), row(&[]), row(&[])];
-    let mv = recommend_move(&mine, &theirs, face(6), DieKind::Normal, false).unwrap();
+    let mv = recommend_move(&mine, &theirs, CurrentDie::normal(face(6))).unwrap();
 
     assert_eq!(mv.placement(), Placement::mine(Row::ALL[0]));
     assert_eq!(mv.knockout(), &[0, 1, 2]);
@@ -92,6 +101,17 @@ fn reroll_recommended_for_a_bad_face_when_available() {
 }
 
 #[test]
+fn shielded_die_can_be_rerolled_when_available() {
+    let mine: Field = [row(&[1, 1, 1]), row(&[1, 1, 1]), row(&[])];
+    let theirs: Field = [row(&[6, 6]), row(&[6, 6]), row(&[])];
+
+    assert_eq!(
+        recommend_turn(shield_input(1, mine, theirs, 1)),
+        Some(TurnAdvice::Reroll)
+    );
+}
+
+#[test]
 fn no_reroll_when_unavailable_yields_a_placement() {
     let empty: Field = [row(&[]), row(&[]), row(&[])];
     let mut turn = input(1, empty, empty, 1);
@@ -102,8 +122,9 @@ fn no_reroll_when_unavailable_yields_a_placement() {
 #[test]
 fn recommend_after_reroll_selects_the_new_face_when_better() {
     let empty: Field = [row(&[]), row(&[]), row(&[])];
-    let choice = recommend_after_reroll(input(1, empty, empty, 1), face(6)).unwrap();
-    assert_eq!(choice.face, face(6));
+    let choice =
+        recommend_after_reroll(input(1, empty, empty, 1), CurrentDie::normal(face(6))).unwrap();
+    assert_eq!(choice.current, CurrentDie::normal(face(6)));
 }
 
 #[test]
@@ -112,6 +133,15 @@ fn bonus_value_falls_back_when_both_boards_full() {
     let cpu: Field = [row(&[4, 4, 4]), row(&[5, 5, 5]), row(&[6, 6, 6])];
     let st = search_state(human, cpu, true);
     assert_eq!(bonus_value(st, 2), turn_value(st.flip(), 2));
+}
+
+#[test]
+fn skipped_full_mover_does_not_spend_search_depth() {
+    let human: Field = [row(&[1, 1, 1]), row(&[2, 2, 2]), row(&[3, 3, 3])];
+    let cpu: Field = [row(&[6, 6]), row(&[1]), row(&[1])];
+    let st = search_state(human, cpu, true);
+
+    assert_eq!(turn_value(st, 1), turn_value(st.flip(), 1));
 }
 
 #[test]
@@ -133,7 +163,7 @@ fn bonus_search_considers_opponent_board_when_it_is_best() {
         let mut sum = 0.0;
         for face in DieFace::ALL {
             let die = Die::new(face, true);
-            let moves: Vec<Move> = legal_moves(&human, &cpu, face, DieKind::Shielded, false)
+            let moves: Vec<Move> = legal_moves(&human, &cpu, CurrentDie::shielded(face))
                 .into_iter()
                 .filter(|mv| mv.placement().board() == Board::Mine)
                 .collect();
@@ -168,7 +198,7 @@ fn search_returns_a_legal_move_midgame() {
     let theirs: Field = [row(&[5, 5]), row(&[1]), row(&[6])];
     let turn = input(5, mine, theirs, 2);
     let mv = recommend_move_search(turn).unwrap();
-    let legal = legal_moves(&turn.mine, &turn.theirs, turn.face, DieKind::Normal, false);
+    let legal = legal_moves(&turn.mine, &turn.theirs, turn.current);
     assert!(legal.contains(&mv));
 }
 

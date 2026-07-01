@@ -1,6 +1,6 @@
 use crate::{
-    apply_move, evaluate_winner, legal_moves, score_field, score_row, ApplyMoveError, Board, Die,
-    DieFace, DieKind, Field, Outcome, Placement, Row,
+    apply_move, evaluate_winner, legal_moves, score_field, score_row, ApplyMoveError, Board,
+    CurrentDie, Die, DieFace, Field, Outcome, Placement, Row,
 };
 
 fn face(value: u8) -> DieFace {
@@ -79,7 +79,7 @@ fn full_draw() {
 fn normal_die_knockout_only_hits_unshielded_matching_faces() {
     let mine: Field = [row(&[3]), row(&[1, 1, 1]), row(&[])];
     let theirs: Field = [row(&[5, 5, 2]), row(&[]), srow(&[(5, true)])];
-    let moves = legal_moves(&mine, &theirs, face(5), DieKind::Normal, false);
+    let moves = legal_moves(&mine, &theirs, CurrentDie::normal(face(5)));
 
     assert_eq!(moves.len(), 2);
     assert_eq!(moves[0].placement(), Placement::mine(Row::ALL[0]));
@@ -92,7 +92,7 @@ fn normal_die_knockout_only_hits_unshielded_matching_faces() {
 fn shielded_die_can_go_on_either_board_and_never_knocks() {
     let mine: Field = [row(&[]), row(&[1, 1, 1]), row(&[1, 1, 1])];
     let theirs: Field = [row(&[4]), row(&[]), row(&[2, 2, 2])];
-    let moves = legal_moves(&mine, &theirs, face(4), DieKind::Shielded, false);
+    let moves = legal_moves(&mine, &theirs, CurrentDie::shielded(face(4)));
 
     let mine_n = moves
         .iter()
@@ -110,7 +110,7 @@ fn shielded_die_can_go_on_either_board_and_never_knocks() {
 #[test]
 fn first_die_is_own_board_only() {
     let empty: Field = [row(&[]), row(&[]), row(&[])];
-    let moves = legal_moves(&empty, &empty, face(6), DieKind::Shielded, true);
+    let moves = legal_moves(&empty, &empty, CurrentDie::opening_shielded(face(6)));
     assert_eq!(moves.len(), 3);
     assert!(moves.iter().all(|m| m.placement().board() == Board::Mine));
 }
@@ -119,7 +119,7 @@ fn first_die_is_own_board_only() {
 fn full_board_yields_no_moves() {
     let mine: Field = [row(&[1, 1, 1]), row(&[2, 2, 2]), row(&[3, 3, 3])];
     let theirs: Field = [row(&[]), row(&[]), row(&[])];
-    assert!(legal_moves(&mine, &theirs, face(5), DieKind::Normal, false).is_empty());
+    assert!(legal_moves(&mine, &theirs, CurrentDie::normal(face(5))).is_empty());
 }
 
 #[test]
@@ -136,7 +136,7 @@ fn tiebreak_by_total_score() {
 fn apply_move_places_in_first_empty_slot() {
     let mine: Field = [row(&[3]), row(&[2, 2]), row(&[])];
     let theirs: Field = [row(&[]), row(&[]), row(&[])];
-    let mv = legal_moves(&mine, &theirs, face(4), DieKind::Normal, false)
+    let mv = legal_moves(&mine, &theirs, CurrentDie::normal(face(4)))
         .into_iter()
         .find(|m| m.placement() == Placement::mine(Row::ALL[0]))
         .unwrap();
@@ -154,7 +154,7 @@ fn apply_move_places_in_first_empty_slot() {
 fn apply_move_knockout_removes_only_specified_slots() {
     let mine: Field = [row(&[]), row(&[]), row(&[])];
     let theirs: Field = [row(&[5, 5, 2]), row(&[3]), row(&[])];
-    let mv = legal_moves(&mine, &theirs, face(5), DieKind::Normal, false)
+    let mv = legal_moves(&mine, &theirs, CurrentDie::normal(face(5)))
         .into_iter()
         .find(|m| m.placement() == Placement::mine(Row::ALL[0]))
         .unwrap();
@@ -172,7 +172,7 @@ fn apply_move_knockout_removes_only_specified_slots() {
 fn apply_move_shielded_on_theirs_scores_for_opponent() {
     let mine: Field = [row(&[]), row(&[]), row(&[])];
     let theirs: Field = [row(&[]), row(&[]), row(&[])];
-    let mv = legal_moves(&mine, &theirs, face(6), DieKind::Shielded, false)
+    let mv = legal_moves(&mine, &theirs, CurrentDie::shielded(face(6)))
         .into_iter()
         .find(|m| m.placement() == Placement::theirs(Row::ALL[1]))
         .unwrap();
@@ -187,7 +187,7 @@ fn apply_move_shielded_on_theirs_scores_for_opponent() {
 fn apply_move_rejects_move_reused_on_full_target_row() {
     let mine: Field = [row(&[]), row(&[]), row(&[])];
     let theirs: Field = [row(&[]), row(&[]), row(&[])];
-    let mv = legal_moves(&mine, &theirs, face(1), DieKind::Normal, false)
+    let mv = legal_moves(&mine, &theirs, CurrentDie::normal(face(1)))
         .into_iter()
         .find(|m| m.placement() == Placement::mine(Row::ALL[0]))
         .unwrap();

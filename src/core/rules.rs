@@ -1,6 +1,8 @@
 use std::fmt;
 
-use super::types::{Board, Die, DieFace, DieKind, Field, Move, Outcome, Placement, Row, SLOTS};
+use super::types::{
+    Board, CurrentDie, Die, DieFace, DieKind, Field, Move, Outcome, Placement, Row, SLOTS,
+};
 
 pub fn score_row(row: &[Option<Die>; SLOTS]) -> u32 {
     let mut counts = [0u32; 7];
@@ -62,14 +64,10 @@ fn knockout_targets(their_row: &[Option<Die>; SLOTS], face: DieFace) -> Vec<usiz
         .collect()
 }
 
-pub fn legal_moves(
-    mine: &Field,
-    theirs: &Field,
-    face: DieFace,
-    kind: DieKind,
-    first_die: bool,
-) -> Vec<Move> {
+pub fn legal_moves(mine: &Field, theirs: &Field, current: CurrentDie) -> Vec<Move> {
     let mut moves = Vec::new();
+    let face = current.face();
+    let kind = current.kind();
 
     for row in Row::ALL {
         if row_len(&mine[row.index()]) < SLOTS {
@@ -82,7 +80,7 @@ pub fn legal_moves(
         }
     }
 
-    if kind == DieKind::Shielded && !first_die {
+    if kind == DieKind::Shielded && !current.first_die() {
         for row in Row::ALL {
             if row_len(&theirs[row.index()]) < SLOTS {
                 moves.push(Move::new(Placement::theirs(row), Vec::new()));
